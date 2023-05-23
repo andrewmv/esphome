@@ -9,7 +9,11 @@
 #include "esphome/core/controller.h"
 
 #include <vector>
-
+#ifdef USE_ESP32
+#include <deque>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#endif
 namespace esphome {
 namespace web_server {
 
@@ -34,7 +38,7 @@ enum JsonDetail { DETAIL_ALL, DETAIL_STATE };
  */
 class WebServer : public Controller, public Component, public AsyncWebHandler {
  public:
-  WebServer(web_server_base::WebServerBase *base) : base_(base), entities_iterator_(ListEntitiesIterator(this)) {}
+  WebServer(web_server_base::WebServerBase *base);
 
   /** Set the URL to the CSS <link> that's sent to each client. Defaults to
    * https://esphome.io/_static/webserver-v1.min.css
@@ -185,7 +189,7 @@ class WebServer : public Controller, public Component, public AsyncWebHandler {
 #endif
 
 #ifdef USE_SELECT
-  void on_select_update(select::Select *obj, const std::string &state) override;
+  void on_select_update(select::Select *obj, const std::string &state, size_t index) override;
   /// Handle a select request under '/select/<id>'.
   void handle_select_request(AsyncWebServerRequest *request, const UrlMatch &match);
 
@@ -220,6 +224,7 @@ class WebServer : public Controller, public Component, public AsyncWebHandler {
   bool isRequestHandlerTrivial() override;
 
  protected:
+  void schedule_(std::function<void()> &&f);
   friend ListEntitiesIterator;
   web_server_base::WebServerBase *base_;
   AsyncEventSource events_{"/events"};
@@ -230,6 +235,10 @@ class WebServer : public Controller, public Component, public AsyncWebHandler {
   const char *js_include_{nullptr};
   bool include_internal_{false};
   bool allow_ota_{true};
+#ifdef USE_ESP32
+  std::deque<std::function<void()>> to_schedule_;
+  SemaphoreHandle_t to_schedule_lock_;
+#endif
 };
 
 }  // namespace web_server

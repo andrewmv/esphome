@@ -21,6 +21,7 @@ from esphome.components.esp32.const import (
     VARIANT_ESP32,
     VARIANT_ESP32C3,
     VARIANT_ESP32S2,
+    VARIANT_ESP32S3,
 )
 
 WAKEUP_PINS = {
@@ -69,6 +70,30 @@ WAKEUP_PINS = {
         20,
         21,
     ],
+    VARIANT_ESP32S3: [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+    ],
 }
 
 
@@ -93,7 +118,14 @@ deep_sleep_ns = cg.esphome_ns.namespace("deep_sleep")
 DeepSleepComponent = deep_sleep_ns.class_("DeepSleepComponent", cg.Component)
 EnterDeepSleepAction = deep_sleep_ns.class_("EnterDeepSleepAction", automation.Action)
 PreventDeepSleepAction = deep_sleep_ns.class_(
-    "PreventDeepSleepAction", automation.Action
+    "PreventDeepSleepAction",
+    automation.Action,
+    cg.Parented.template(DeepSleepComponent),
+)
+AllowDeepSleepAction = deep_sleep_ns.class_(
+    "AllowDeepSleepAction",
+    automation.Action,
+    cg.Parented.template(DeepSleepComponent),
 )
 
 WakeupPinMode = deep_sleep_ns.enum("WakeupPinMode")
@@ -208,26 +240,30 @@ async def to_code(config):
     cg.add_define("USE_DEEP_SLEEP")
 
 
-DEEP_SLEEP_ENTER_SCHEMA = cv.All(
-    automation.maybe_simple_id(
-        {
-            cv.GenerateID(): cv.use_id(DeepSleepComponent),
-            cv.Exclusive(CONF_SLEEP_DURATION, "time"): cv.templatable(
-                cv.positive_time_period_milliseconds
-            ),
-            # Only on ESP32 due to how long the RTC on ESP8266 can stay asleep
-            cv.Exclusive(CONF_UNTIL, "time"): cv.All(cv.only_on_esp32, cv.time_of_day),
-            cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
-        }
-    ),
-    cv.has_none_or_all_keys(CONF_UNTIL, CONF_TIME_ID),
-)
-
-
-DEEP_SLEEP_PREVENT_SCHEMA = automation.maybe_simple_id(
+DEEP_SLEEP_ACTION_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.use_id(DeepSleepComponent),
     }
+)
+
+DEEP_SLEEP_ENTER_SCHEMA = cv.All(
+    automation.maybe_simple_id(
+        DEEP_SLEEP_ACTION_SCHEMA.extend(
+            cv.Schema(
+                {
+                    cv.Exclusive(CONF_SLEEP_DURATION, "time"): cv.templatable(
+                        cv.positive_time_period_milliseconds
+                    ),
+                    # Only on ESP32 due to how long the RTC on ESP8266 can stay asleep
+                    cv.Exclusive(CONF_UNTIL, "time"): cv.All(
+                        cv.only_on_esp32, cv.time_of_day
+                    ),
+                    cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
+                }
+            )
+        )
+    ),
+    cv.has_none_or_all_keys(CONF_UNTIL, CONF_TIME_ID),
 )
 
 
@@ -252,8 +288,16 @@ async def deep_sleep_enter_to_code(config, action_id, template_arg, args):
 
 
 @automation.register_action(
-    "deep_sleep.prevent", PreventDeepSleepAction, DEEP_SLEEP_PREVENT_SCHEMA
+    "deep_sleep.prevent",
+    PreventDeepSleepAction,
+    automation.maybe_simple_id(DEEP_SLEEP_ACTION_SCHEMA),
 )
-async def deep_sleep_prevent_to_code(config, action_id, template_arg, args):
-    paren = await cg.get_variable(config[CONF_ID])
-    return cg.new_Pvariable(action_id, template_arg, paren)
+@automation.register_action(
+    "deep_sleep.allow",
+    AllowDeepSleepAction,
+    automation.maybe_simple_id(DEEP_SLEEP_ACTION_SCHEMA),
+)
+async def deep_sleep_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var

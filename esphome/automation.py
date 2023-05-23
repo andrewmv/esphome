@@ -12,7 +12,7 @@ from esphome.const import (
     CONF_TYPE_ID,
     CONF_TIME,
 )
-from esphome.jsonschema import jschema_extractor
+from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
 from esphome.util import Registry
 
 
@@ -23,11 +23,10 @@ def maybe_simple_id(*validators):
 def maybe_conf(conf, *validators):
     validator = cv.All(*validators)
 
-    @jschema_extractor("maybe")
+    @schema_extractor("maybe")
     def validate(value):
-        # pylint: disable=comparison-with-callable
-        if value == jschema_extractor:
-            return validator
+        if value == SCHEMA_EXTRACT:
+            return (validator, conf)
 
         if isinstance(value, dict):
             return validator(value)
@@ -111,11 +110,9 @@ def validate_automation(extra_schema=None, extra_validators=None, single=False):
         # This should only happen with invalid configs, but let's have a nice error message.
         return [schema(value)]
 
-    @jschema_extractor("automation")
+    @schema_extractor("automation")
     def validator(value):
-        # hack to get the schema
-        # pylint: disable=comparison-with-callable
-        if value == jschema_extractor:
+        if value == SCHEMA_EXTRACT:
             return schema
 
         value = validator_(value)
@@ -257,7 +254,11 @@ async def repeat_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     count_template = await cg.templatable(config[CONF_COUNT], args, cg.uint32)
     cg.add(var.set_count(count_template))
-    actions = await build_action_list(config[CONF_THEN], template_arg, args)
+    actions = await build_action_list(
+        config[CONF_THEN],
+        cg.TemplateArguments(cg.uint32, *template_arg.args),
+        [(cg.uint32, "iteration"), *args],
+    )
     cg.add(var.add_then(actions))
     return var
 
